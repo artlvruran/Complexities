@@ -26,12 +26,32 @@ class Ant(threading.Thread):
         self.phi = colony.parameters['phi']
         self.current_city = start
 
-    def choose_next(self) -> Optional[int]:
+    """def choose_next(self) -> Optional[int]:
         pheromone = self.colony.pheromone[self.current_city, self.not_visited] ** self.colony.parameters['alpha']
         heuristic = self.colony.heuristic[self.current_city, self.not_visited] ** self.colony.parameters['beta']
         probabilities = pheromone * heuristic
         probabilities /= np.sum(probabilities)
         return random.choices(self.not_visited, weights=probabilities)[0]
+    """
+
+    def get_eligible_cities(self):
+        # Берем предвычисленных кандидатов для текущего города
+        candidates = self.colony.candidate_lists[self.current_city]
+        # Фильтруем только непосещенные
+        eligible = [city for city in candidates if city in self.not_visited]
+        # Если все кандидаты посещены, используем оставшиеся города
+        return eligible if eligible else self.not_visited
+
+    def choose_next(self) -> Optional[int]:
+        eligible = self.get_eligible_cities()
+        if not eligible:
+            return None
+
+        pheromone = self.colony.pheromone[self.current_city, eligible] ** self.colony.parameters['alpha']
+        heuristic = self.colony.heuristic[self.current_city, eligible] ** self.colony.parameters['beta']
+        probabilities = pheromone * heuristic
+        probabilities /= np.sum(probabilities)
+        return random.choices(eligible, weights=probabilities)[0]
 
     def run(self) -> None:
         for _ in range(self.graph.n - 1):
@@ -46,7 +66,7 @@ class Ant(threading.Thread):
         self.local_search()
         self.colony.solution_update(self.path, self.distance)
 
-    def local_search(self):
+    """def local_search(self):
         improved = True
         best_path = self.path
         best_distance = self.distance
@@ -63,19 +83,53 @@ class Ant(threading.Thread):
                         break
                 if improved:
                     break
-        return best_path
-
+        self.path = best_path
+        self.distance = best_distance
+    """
+    def local_search(self):
+        improved = True
+        best_path = self.path
+        best_distance = self.distance
+        max_attempts = 1000
+        while improved:
+            improved = False
+            for _ in range(max_attempts):
+                i = random.randint(1, len(best_path) - 2)
+                k = random.randint(i + 1, len(best_path) - 1)
+                new_route = best_path[:i] + list(reversed(best_path[i:k + 1])) + best_path[k + 1:]
+                new_route_distance = self.graph.path_cost(new_route)
+                if new_route_distance < best_distance:
+                    best_path = new_route
+                    best_distance = new_route_distance
+                    improved = True
+                    break
 
 class ACSAnt(Ant):
     def __init__(self, idx, colony, start):
         super().__init__(idx, colony, start)
 
-    def choose_next(self) -> Optional[int]:
+    """def choose_next(self) -> Optional[int]:
         if random.random() < self.colony.parameters['q0']:
             probs = (self.colony.pheromone[self.current_city, self.not_visited] ** self.colony.parameters['alpha'] *
                      self.colony.heuristic[self.current_city, self.not_visited] ** self.colony.parameters['beta'])
             next_city = self.not_visited[np.argmax(probs)]
         else:
+            next_city = super().choose_next()
+        return next_city
+        """
+
+    def choose_next(self) -> Optional[int]:
+        eligible = self.get_eligible_cities()
+        if not eligible:
+            return None
+
+        if random.random() < self.colony.parameters['q0']:
+            # Жадный выбор из кандидатов
+            probs = (self.colony.pheromone[self.current_city, eligible] ** self.colony.parameters['alpha'] *
+                     self.colony.heuristic[self.current_city, eligible] ** self.colony.parameters['beta'])
+            next_city = eligible[np.argmax(probs)]
+        else:
+            # Вероятностный выбор из кандидатов
             next_city = super().choose_next()
         return next_city
 
@@ -136,6 +190,18 @@ class Colony:
         self.iter_best_path = None
         self.iter_best_distance = np.inf
 
+        self.candidate_lists = []
+        for i in range(graph.n):
+            # Сортируем города по расстоянию от текущего
+            sorted_cities = sorted(
+                [j for j in range(graph.n) if j != i],
+                key=lambda x: graph.distance(i, x)
+            )
+            # Берем топ cl_size соседей
+            self.candidate_lists.append(
+                sorted_cities[:self.parameters['cl_size']]
+            )
+
         self.pheromone_lock = threading.Lock()
         self.solution_lock = threading.Lock()
 
@@ -176,7 +242,7 @@ class Colony:
                 self.pheromone[rows, cols] += elitist_value
             case 'as_rank':
                 rank = np.argsort(self.distances)
-                for j in range(0, self.parameters['top'] - 1):
+                for j in range(0, self.parameters['top']):
                     i = rank[j]
                     path = self.paths[i]
                     distance = self.distances[i]
@@ -231,7 +297,9 @@ class Colony:
         return Ant(idx, self, random.choice(range(self.graph.n)))
 
     def generate_solutions(self) -> None:
-        self.paths, self.distances = [], []
+        self.paths = []
+        self.distances = []
+        self.ants = []
         self.iter_best_path = None
         self.iter_best_distance = np.inf
 
@@ -244,7 +312,7 @@ class Colony:
             self.paths.append(path)
             self.distances.append(distance)
             
-            if distance < self.best_distance:
+            if distance < self.iter_best_distance:
                 self.iter_best_path = path
                 self.iter_best_distance = distance
             
