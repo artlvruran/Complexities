@@ -36,7 +36,6 @@ class Graph:
         nn_cost = float("inf")
         for start in range(0, self.n):
             clear_output()
-            print(f"{start} / {self.n}")
             not_visited = list(range(self.n))
             not_visited.remove(start)
 

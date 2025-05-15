@@ -10,6 +10,7 @@ import numpy as np
 from IPython.display import display, clear_output
 from src.output import Output
 
+
 class Ant:
     def __init__(self, idx, colony, start):
         self.id = idx
@@ -210,6 +211,11 @@ class Colony:
                 ibest = i
                 self.iter_best_distance = self.ants[i].distance
                 self.iter_best_path = self.ants[i].path
+
+        self.ants[ibest].local_search()
+        if self.parameters['type'] == 'acs':
+            self.ants[ibest].local_update_pheromone()
+            self.solution_update(self.ants[ibest].path, self.ants[ibest].distance)
 
     def solution_update(self, path, distance):
         self.paths.append(path)
